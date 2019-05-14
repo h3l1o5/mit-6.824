@@ -1,9 +1,18 @@
 package mapreduce
 
+import (
+	"encoding/json"
+	"io/ioutil"
+	"log"
+	"os"
+	"sort"
+	"strings"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
-	outFile string, // write the output here
+	outFileName string, // write the output here
 	nMap int, // the number of map tasks that were run ("M" in the paper)
 	reduceF func(key string, values []string) string,
 ) {
@@ -44,4 +53,54 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+	intermediates := make(map[string][]string)
+
+	for i := 0; i < nMap; i++ {
+		bytestring, err := ioutil.ReadFile(reduceName(jobName, i, reduceTask))
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		lines := strings.Fields(string(bytestring))
+
+		for _, line := range lines {
+			var kv KeyValue
+			json.Unmarshal([]byte(line), &kv)
+
+			if intermediates[kv.Key] != nil {
+				intermediates[kv.Key] = append(intermediates[kv.Key], kv.Value)
+			} else {
+				intermediates[kv.Key] = []string{kv.Value}
+			}
+		}
+	}
+
+	var finalResults []KeyValue
+	for key, values := range intermediates {
+		finalResults = append(finalResults, KeyValue{key, reduceF(key, values)})
+	}
+
+	sort.Sort(byKey(finalResults))
+
+	outFile, err := os.Create(outFileName)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, finalResult := range finalResults {
+
+		finalResultJSON, err := json.Marshal(finalResult)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		outFile.WriteString(string(finalResultJSON) + "\n")
+	}
 }
+
+// Sorting method
+type byKey []KeyValue
+
+func (a byKey) Len() int           { return len(a) }
+func (a byKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
