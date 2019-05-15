@@ -2,7 +2,6 @@ package mapreduce
 
 import (
 	"fmt"
-	"log"
 	"sync"
 )
 
@@ -41,20 +40,22 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 		go func(file string, taskNumber int) {
 			defer wg.Done()
 
-			// Wait for available worker
-			worker := <-registerChan
+			for {
+				// Wait for available worker
+				worker := <-registerChan
 
-			jobDone := call(worker, "Worker.DoTask", DoTaskArgs{jobName, file, phase, taskNumber, n_other}, nil)
+				jobDone := call(worker, "Worker.DoTask", DoTaskArgs{jobName, file, phase, taskNumber, n_other}, nil)
 
-			if jobDone {
-				// Set worker to available state
+				// Set worker to available state no matter success or failed
 				go func() {
 					registerChan <- worker
 				}()
-			} else {
-				log.Fatal("Task failed")
-			}
 
+				// Break the infinite while loop only when job success
+				if jobDone {
+					break
+				}
+			}
 		}(mapFiles[i], i)
 	}
 
